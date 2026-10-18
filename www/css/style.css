@@ -459,6 +459,18 @@ button { font-family: inherit; }
   font-weight: 800;
   color: #9ca3af;
 }
+.suggest-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 900;
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+.suggest-badge.ok { background: #dcfce7; color: #15803d; }
+.suggest-badge.bad { background: #fee2e2; color: #b91c1c; }
 .suggest-text {
   font-size: 14px;
   color: #374151;

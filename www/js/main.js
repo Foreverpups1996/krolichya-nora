@@ -316,6 +316,19 @@
     set all(v) { localStorage.setItem('baby_suggestions', JSON.stringify(v)); },
   };
 
+  const suggWhen = (at) => new Date(at).toLocaleString('ru-RU',
+    { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const suggBadge = (s) => s.sent
+    ? `<span class="suggest-badge ok">→ ${escHtml(s.sent)} ✓</span>`
+    : s.err
+      ? `<span class="suggest-badge bad">⚠ не доставлено</span>`
+      : `<span class="suggest-badge">локально</span>`;
+  const suggItemHtml = (s) => `
+    <div class="suggest-item">
+      <span class="suggest-when">${suggWhen(s.at)} ${suggBadge(s)}</span>
+      <span class="suggest-text">${escHtml(s.text)}</span>
+    </div>`;
+
   /* ================= TELEGRAM ================= */
   const loadTg = () => {
     try { return JSON.parse(localStorage.getItem('baby_tg') || '{}'); } catch (e) { return {}; }
@@ -443,55 +456,76 @@
       const items = store_sugg.all;
       history.innerHTML = items.length
         ? `<div class="suggest-hist-title">Сохранено: ${items.length}</div>` +
-          items.slice().reverse().map((s) => `
-            <div class="suggest-item">
-              <span class="suggest-when">${new Date(s.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-              <span class="suggest-text">${escHtml(s.text)}</span>
-            </div>`).join('')
+          items.slice().reverse().map(suggItemHtml).join('')
         : '';
     };
     renderHistory();
 
     const text = () => input.value.trim();
 
-    m.querySelector('#suggest-save').addEventListener('pointerdown', async () => {
-      const t = text();
-      if (!t) { flash('Пустое предложение', true); return; }
+    // добавляет предложение в историю сразу (видно пользователю), возвращает индекс
+    const pushLocal = (t) => {
       const items = store_sugg.all;
       items.push({ text: t, at: Date.now() });
       store_sugg.all = items;
-      input.value = '';
       renderHistory();
-      flash('Сохранено ✓');
-      // если Telegram/VK настроены — отправляем копию (Telegram → фолбэк VK)
-      const d = await deliver(`💡 Предложение:\n${t}`);
-      if (d && d.ok) flash(`Отправлено в ${d.via} ✓`);
-      else if (d) flash(`Сохранено. ${d.text}`, true);
-    });
+      return items.length - 1;
+    };
+    const markLocal = (idx, extra) => {
+      const items = store_sugg.all;
+      if (items[idx]) { Object.assign(items[idx], extra); store_sugg.all = items; renderHistory(); }
+    };
+    // блокирует кнопку и показывает процесс
+    const runBusy = async (btn, label, fn) => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = label;
+      try { await fn(); } finally { btn.disabled = false; btn.textContent = orig; }
+    };
 
-    m.querySelector('#suggest-share').addEventListener('pointerdown', async () => {
-      const t = text();
-      if (!t) { flash('Пустое предложение', true); return; }
-      const payload = `Предложение для «Кроличьей норы»:\n${t}`;
-      // Telegram/VK — основной канал (VK срабатывает автоматически, если Telegram заблокирован)
-      const d = await deliver(payload);
-      if (d && d.ok) { flash(`Отправлено в ${d.via} ✓`); return; }
-      if (d && d.text.startsWith('Ошибка')) { flash(d.text, true); return; }
-      // каналы не настроены или сеть лежит — штатный share/буфер
-      try {
-        if (navigator.share) {
-          await navigator.share({ title: 'Предложение — Кроличья нора', text: payload });
-          flash('Отправлено ✓');
-        } else if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(payload);
-          flash('Скопировано в буфер ✓');
-        } else {
-          flash('Отправка недоступна', true);
+    m.querySelector('#suggest-save').addEventListener('pointerdown', () => runBusy(
+      m.querySelector('#suggest-save'), '⏳ Отправляю…', async () => {
+        const t = text();
+        if (!t) { flash('Пустое предложение', true); return; }
+        const idx = pushLocal(t); // уже видно в списке
+        input.value = '';
+        flash('Сохранено ✓');
+        // если Telegram/VK настроены — отправляем копию (Telegram → фолбэк VK)
+        const d = await deliver(`💡 Предложение:\n${t}`);
+        if (d && d.ok) { markLocal(idx, { sent: d.via }); flash(`Отправлено в ${d.via} ✓`); }
+        else if (d) { markLocal(idx, { err: d.text }); flash(`Сохранено. ${d.text}`, true); }
+      }));
+
+    m.querySelector('#suggest-share').addEventListener('pointerdown', () => runBusy(
+      m.querySelector('#suggest-share'), '⏳ Отправляю…', async () => {
+        const t = text();
+        if (!t) { flash('Пустое предложение', true); return; }
+        const payload = `Предложение для «Кроличьей норы»:\n${t}`;
+        const idx = pushLocal(t); // сразу видно в списке
+        input.value = '';
+        // Telegram/VK — основной канал (VK срабатывает автоматически, если Telegram заблокирован)
+        const d = await deliver(payload);
+        if (d && d.ok) { markLocal(idx, { sent: d.via }); flash(`Отправлено в ${d.via} ✓`); return; }
+        if (d && d.text.startsWith('Ошибка')) { markLocal(idx, { err: d.text }); flash(d.text, true); return; }
+        // каналы не настроены или сеть лежит — штатный share/буфер
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: 'Предложение — Кроличья нора', text: payload });
+            markLocal(idx, { sent: 'Поделиться' });
+            flash('Отправлено ✓');
+          } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(payload);
+            markLocal(idx, { sent: 'Буфер обмена' });
+            flash('Скопировано в буфер ✓');
+          } else {
+            markLocal(idx, { err: 'Отправка недоступна' });
+            flash('Отправка недоступна', true);
+          }
+        } catch (e) {
+          markLocal(idx, { err: 'Отправка отменена' });
+          flash('Отправка отменена', true);
         }
-      } catch (e) {
-        flash('Отправка отменена', true);
-      }
-    });
+      }));
 
     m.querySelector('#suggest-close').addEventListener('pointerdown', () => { Sfx.playTap(); m.remove(); });
     m.addEventListener('pointerdown', (e) => { if (e.target === m) m.remove(); });
@@ -612,11 +646,7 @@
     const renderSugg = () => {
       const items = store_sugg.all;
       suggList.innerHTML = items.length
-        ? items.slice().reverse().map((s) => `
-            <div class="suggest-item">
-              <span class="suggest-when">${new Date(s.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-              <span class="suggest-text">${escHtml(s.text)}</span>
-            </div>`).join('')
+        ? items.slice().reverse().map(suggItemHtml).join('')
         : '<p class="eng-hint">Пока пусто</p>';
     };
     renderSugg();
