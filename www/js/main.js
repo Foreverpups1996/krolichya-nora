@@ -87,6 +87,7 @@
   function renderMenu() {
     clearTimeout(roundTimer);
     Sfx.stop();
+    if (typeof sorterDragCleanup === 'function') sorterDragCleanup();
     currentGame = null;
     currentRound = null;
     sessionStars = 0;
@@ -143,6 +144,7 @@
   /* ================= ЭКРАН ИГРЫ ================= */
   function renderGame(game) {
     Sfx.stop();
+    if (typeof sorterDragCleanup === 'function') sorterDragCleanup();
     if (game.id === 'animals' || game.id === 'sings' || game.id === 'pairs') Sfx.preloadAnimals();
     currentGame = game;
     currentRound = null;
@@ -300,17 +302,18 @@
     });
   }
 
-  /* ---------- 🧩 Сортер: фигурки → окошки (тап или перетаскивание) ---------- */
+  /* ---------- 🧩 Сортер: фигурки → окошки (перетаскивание или тап-тап) ---------- */
+  let sorterDragCleanup = null; // снятие глобальных обработчиков перетаскивания
+
   function setupSorter(round, area) {
+    if (sorterDragCleanup) sorterDragCleanup();
     let done = 0;
     let answered = false;
     let selected = null; // выбранная фигурка (режим «тап-тап»)
     let drag = null;
 
     const board = h('<div class="board"></div>');
-    const deck = h('<div class="deck"></div>');
     area.appendChild(board);
-    area.appendChild(deck);
 
     const holes = [];
     const pieces = [];
@@ -319,9 +322,35 @@
       board.appendChild(hole);
       holes.push(hole);
       const piece = h(`<button class="piece" data-id="${s.id}">${Games.shapeSvg(s, s.color)}</button>`);
-      deck.appendChild(piece);
+      area.appendChild(piece); // абсолютное позиционирование — разбрасываем по полю
       pieces.push(piece);
     });
+
+    /* Фигурки разлетаются по полю под доской — каждый раунд в новых местах */
+    function scatterPieces() {
+      const areaRect = area.getBoundingClientRect();
+      const boardRect = board.getBoundingClientRect();
+      const size = (pieces[0] && pieces[0].getBoundingClientRect().width) || 90;
+      const pad = 10;
+      const minY = Math.max(pad, boardRect.bottom - areaRect.top + 18);
+      const maxY = Math.max(minY, areaRect.height - size - pad);
+      const minX = pad;
+      const maxX = Math.max(minX, areaRect.width - size - pad);
+      const spots = [];
+      for (const piece of pieces) {
+        let x = minX;
+        let y = minY;
+        for (let t = 0; t < 50; t++) {
+          x = minX + Math.random() * (maxX - minX);
+          y = minY + Math.random() * (maxY - minY);
+          if (!spots.some((s) => Math.abs(s.x - x) < size * 0.75 && Math.abs(s.y - y) < size * 0.75)) break;
+        }
+        spots.push({ x, y });
+        piece.style.left = `${Math.round(x)}px`;
+        piece.style.top = `${Math.round(y)}px`;
+        piece.style.setProperty('--rot', `${Math.round(Math.random() * 26 - 13)}deg`);
+      }
+    }
 
     const wrongHole = (hole) => {
       Sfx.stop(); // гасим играющую подсказку, чтобы не было двух голосов
@@ -362,40 +391,56 @@
       }
     };
 
-    pieces.forEach((piece) => {
-      piece.addEventListener('pointerdown', (e) => {
-        if (answered || piece.classList.contains('placed')) return;
-        Sfx.unlock();
-        drag = { piece, id: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false };
-        try { piece.setPointerCapture(e.pointerId); } catch (err) {}
-      });
-      piece.addEventListener('pointermove', (e) => {
-        if (!drag || drag.piece !== piece) return;
-        const dx = e.clientX - drag.startX;
-        const dy = e.clientY - drag.startY;
-        if (!drag.moved && Math.hypot(dx, dy) > 8) {
-          drag.moved = true;
-          piece.classList.add('dragging');
-          piece.style.pointerEvents = 'none'; // чтобы elementFromPoint «видел» окошки
-          if (selected === piece) { piece.classList.remove('selected'); selected = null; }
-        }
-        if (drag.moved) piece.style.transform = `translate(${dx}px, ${dy}px) scale(1.08)`;
-      });
-      const endDrag = (e) => {
-        if (!drag || drag.piece !== piece) return;
-        const moved = drag.moved;
-        drag = null;
-        piece.style.pointerEvents = '';
-        if (moved) {
-          piece.classList.remove('dragging');
-          piece.style.transform = '';
-          const under = document.elementFromPoint(e.clientX, e.clientY);
-          const hole = under && under.closest('.board .hole');
-          if (hole) {
-            if (hole.dataset.id === piece.dataset.id) place(piece, hole);
-            else wrongHole(hole);
-          }
-        } else if (selected === piece) {
+    /* Мягкий захват: если палец оказался рядом с окошком (до 28px) — попадаем в него */
+    const holeAt = (x, y) => {
+      const under = document.elementFromPoint(x, y);
+      const direct = under && under.closest('.board .hole');
+      if (direct) return direct;
+      let best = null;
+      let bestD = 28;
+      for (const cand of document.querySelectorAll('.board .hole:not(.filled)')) {
+        const r = cand.getBoundingClientRect();
+        const cx = Math.max(r.left, Math.min(x, r.right));
+        const cy = Math.max(r.top, Math.min(y, r.bottom));
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < bestD) { bestD = d; best = cand; }
+      }
+      return best;
+    };
+
+    /* Перетаскивание слушаем на window: работает даже там, где ломается
+       pointer capture (тач-экраны, старый Safari). Один активный драг. */
+    const onMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const piece = drag.piece;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) > 8) {
+        drag.moved = true;
+        piece.classList.add('dragging');
+        piece.style.pointerEvents = 'none'; // чтобы elementFromPoint «видел» окошки
+        if (selected === piece) { piece.classList.remove('selected'); selected = null; }
+      }
+      if (drag.moved) {
+        piece.style.transform = `translate(${dx}px, ${dy}px) rotate(var(--rot, 0deg)) scale(1.08)`;
+      }
+    };
+
+    const resetPiece = (piece) => {
+      piece.style.pointerEvents = '';
+      piece.classList.remove('dragging');
+      piece.style.transform = '';
+    };
+
+    const finishDrag = (e) => {
+      if (!drag) return;
+      const piece = drag.piece;
+      const moved = drag.moved;
+      drag = null;
+      resetPiece(piece);
+      if (!moved) {
+        // короткое нажатие — режим «тап-тап»
+        if (selected === piece) {
           piece.classList.remove('selected');
           selected = null;
         } else {
@@ -404,15 +449,41 @@
           piece.classList.add('selected');
           Sfx.playTap();
         }
-      };
-      piece.addEventListener('pointerup', endDrag);
-      piece.addEventListener('pointercancel', () => {
-        if (drag && drag.piece === piece) {
-          drag = null;
-          piece.classList.remove('dragging');
-          piece.style.transform = '';
-          piece.style.pointerEvents = '';
+        return;
+      }
+      if (e && typeof e.clientX === 'number') {
+        const hole = holeAt(e.clientX, e.clientY);
+        if (hole) {
+          if (hole.dataset.id === piece.dataset.id) place(piece, hole);
+          else wrongHole(hole);
         }
+      }
+    };
+
+    const cancelDrag = () => {
+      if (!drag) return;
+      const piece = drag.piece;
+      drag = null;
+      resetPiece(piece);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('pointercancel', cancelDrag);
+    sorterDragCleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finishDrag);
+      window.removeEventListener('pointercancel', cancelDrag);
+      sorterDragCleanup = null;
+    };
+
+    pieces.forEach((piece) => {
+      piece.addEventListener('pointerdown', (e) => {
+        if (answered || drag || piece.classList.contains('placed')) return;
+        e.preventDefault(); // гасим эмулируемые click/тач-дубли
+        Sfx.unlock();
+        drag = { piece, id: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false };
+        try { piece.setPointerCapture(e.pointerId); } catch (err) {}
       });
     });
 
@@ -425,6 +496,8 @@
         else wrongHole(hole);
       });
     });
+
+    scatterPieces();
   }
 
   /* ================= ЗВЁЗДЫ, НАКЛЕЙКИ, СТАТИСТИКА ================= */

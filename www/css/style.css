@@ -640,12 +640,13 @@ button { font-family: inherit; }
   font-weight: 900;
 }
 
-/* ===== Сортер (тап или перетаскивание фигур в окошки) ===== */
+/* ===== Сортер (перетаскивание или тап: фигурки разбросаны по полю) ===== */
 .play-area.sorter {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  justify-content: center;
+  justify-content: flex-start;
+  position: relative; /* поле для разбросанных фигурок */
   padding: 4px 0;
 }
 .play-area.sorter .board {
@@ -670,29 +671,29 @@ button { font-family: inherit; }
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 5px 0 rgba(0, 0, 0, 0.14);
 }
-.play-area.sorter .deck {
-  display: flex;
-  justify-content: center;
-  gap: clamp(10px, 3vw, 22px);
-}
 .play-area.sorter .piece {
+  position: absolute; /* каждая фигурка — в своём случайном месте */
   border: none;
   border-radius: 24px;
   background: #fff;
   box-shadow: 0 6px 0 rgba(0, 0, 0, 0.16);
   cursor: grab;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   width: clamp(84px, 24vw, 140px);
   height: clamp(84px, 24vw, 140px);
   padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transform: rotate(var(--rot, 0deg)); /* лёгкий разброс поворотов */
   transition: transform 0.12s;
 }
 .play-area.sorter .piece.selected {
   outline: 6px solid rgba(250, 204, 21, 0.9);
-  animation: hintPulse 1s ease-in-out infinite;
+  animation: piecePulse 1s ease-in-out infinite; /* пульс не сбрасывает поворот */
 }
 .play-area.sorter .piece.dragging {
   transition: none;
@@ -870,6 +871,11 @@ button { font-family: inherit; }
 @keyframes hintPulse {
   0%, 100% { transform: scale(1); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14); }
   50% { transform: scale(1.05); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 0 24px rgba(250, 204, 21, 0.9); }
+}
+@keyframes piecePulse {
+  /* пульс выбранной фигурки сортера — сохраняет её случайный поворот */
+  0%, 100% { transform: rotate(var(--rot, 0deg)) scale(1); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14); }
+  50% { transform: rotate(var(--rot, 0deg)) scale(1.05); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 0 24px rgba(250, 204, 21, 0.9); }
 }
 @keyframes balloonPop {
   0% { transform: scale(1); }
