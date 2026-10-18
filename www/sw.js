@@ -1,7 +1,7 @@
 /* Service Worker «Кроличьей норы»:
    cache-first — игра мгновенно открывается и полностью работает офлайн.
    Звуки и фразы кешируются при первом проигрывании. */
-const CACHE = 'krolichya-nora-v3';
+const CACHE = 'krolichya-nora-v4';
 const CORE = [
   './',
   'index.html',

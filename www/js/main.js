@@ -71,7 +71,9 @@
       if (text) Sfx.speakL(text, opts);
       return;
     }
+    const ep = Sfx.voiceEpoch();
     Sfx.loadPhrase(I18n.get(), key).then((ok) => {
+      if (Sfx.voiceEpoch() !== ep) return; // нажали во время загрузки — больше не озвучиваем
       if (ok) Sfx.phrase(key, opts);
       else if (text) Sfx.speakL(text, opts);
     });
@@ -167,10 +169,11 @@
       renderMenu();
     });
     document.getElementById('btn-repeat').addEventListener('pointerdown', () => {
-      Sfx.playTap();
+      Sfx.stop(); // выключаем всё, что сейчас звучит — без наложений
       if (currentRound && currentRound.playSound) {
-        Sfx.animal(currentRound.playSound.id); // «повторить» в игре «Кто поёт?» — снова звук
+        Sfx.animal(currentRound.playSound.id); // «повторить» в игре «Кто поёт?» — только звук, без щелчка
       } else if (currentRound) {
+        Sfx.playTap();
         say(currentRound.prompt.key, currentRound.prompt.text, { delay: 250 });
       }
     });
@@ -205,17 +208,32 @@
     else setupChoose(round, area);
 
     say(round.prompt.key, round.prompt.text, { delay: 700 });
-    if (round.playSound) setTimeout(() => { if (currentRound === round) Sfx.animal(round.playSound.id); }, 550);
+    if (round.playSound) {
+      setTimeout(() => {
+        if (currentRound === round && !round.answered) Sfx.animal(round.playSound.id);
+      }, 550);
+    }
   }
 
+  /* Победная оркестровка (t = тап):
+     0    — главный звук (животное/фигура из onPick)
+     500  — мелодия победы + искра звезды (на праздник — вместо них фанфара)
+     1200 — голос («Гав-гав! Собака!») — из games.js
+     2700 — «Молодец!»
+     2900 — наклейка (только на 5-й звезде) */
   function roundWon(area, btn) {
-    Sfx.playSuccess();
     Sfx.vibrate(60);
     if (btn) btn.classList.add('win');
     burstConfetti(btn || area, 26);
-    addStar();
-    sayPraise(1900);
-    roundTimer = setTimeout(nextRound, 3000);
+    const big = addStar(); // сама решает: искра звезды или большой праздник
+    if (big) {
+      // фанфара (500) → голос животного (1200) → наклейка (2900)
+      roundTimer = setTimeout(nextRound, 4700);
+    } else {
+      setTimeout(() => Sfx.playSuccess(), 500);
+      sayPraise(2700);
+      roundTimer = setTimeout(nextRound, 3200);
+    }
   }
 
   function setupChoose(round, area) {
@@ -227,8 +245,10 @@
       if (opt.isCorrect) correctBtn = btn;
       btn.addEventListener('pointerdown', () => {
         if (answered) return;
+        Sfx.stop(); // тишина: подсказка/хвост фразы не должны накладываться на тап
         if (opt.isCorrect) {
           answered = true;
+          round.answered = true;
           streak++;
           if (opt.onPick) opt.onPick(btn);
           roundWon(area, btn);
@@ -255,22 +275,24 @@
       const btn = h(`<button class="item">${item.html}</button>`);
       btn.addEventListener('pointerdown', () => {
         if (answered || btn.classList.contains('popped')) return;
+        Sfx.stop(); // гасим подсказку и предыдущее слово счёта — без наложений
         btn.classList.add('popped');
         tapped++;
         Sfx.playPop();
         Sfx.vibrate(20);
-        Sfx.speakL(Games.numWord(tapped)); // «Раз, два, три…»
+        say('count-' + tapped, Games.numWord(tapped)); // «Раз, два, три…» — записанным голосом
         if (tapped === round.items.length) {
           answered = true;
+          round.answered = true;
           roundTimer = setTimeout(() => {
-            Sfx.playSuccess();
             Sfx.vibrate(60);
             burstConfetti(area, 30);
-            addStar();
+            const big = addStar();
+            if (!big) Sfx.playSuccess(); // блок и так задержан на 650мс
             // итог: «Всего три!» — малыш связывает пересчёт с результатом
-            say(round.countWordKey, round.countWordText, { delay: 900 });
-            sayPraise(2400);
-            roundTimer = setTimeout(nextRound, 3600);
+            say(round.countWordKey, round.countWordText, { delay: big ? 1500 : 900 });
+            if (!big) sayPraise(2400);
+            roundTimer = setTimeout(nextRound, big ? 4700 : 3600);
           }, 650);
         }
       });
@@ -302,6 +324,7 @@
     });
 
     const wrongHole = (hole) => {
+      Sfx.stop(); // гасим играющую подсказку, чтобы не было двух голосов
       Sfx.playWrong();
       Sfx.vibrate(20);
       hole.classList.remove('shake');
@@ -312,6 +335,7 @@
 
     const place = (piece, hole) => {
       if (answered || hole.classList.contains('filled')) return;
+      Sfx.stop(); // тишина перед голосом фигурки
       const svg = piece.querySelector('svg').cloneNode(true);
       hole.innerHTML = '';
       hole.classList.add('filled');
@@ -322,17 +346,18 @@
       Sfx.playPop();
       Sfx.vibrate(25);
       const shape = round.shapes.find((x) => x.id === piece.dataset.id);
-      if (shape) Sfx.speakL(cap(L(shape.acc)), { delay: 350 });
+      if (shape) Sfx.speakL(cap(L(shape.acc)), { delay: 250 });
       done++;
       if (done === round.shapes.length) {
         answered = true;
+        round.answered = true;
         roundTimer = setTimeout(() => {
-          Sfx.playSuccess();
           Sfx.vibrate(60);
           burstConfetti(board, 30);
-          addStar();
-          sayPraise(1900);
-          roundTimer = setTimeout(nextRound, 3200);
+          const big = addStar();
+          if (!big) Sfx.playSuccess(); // блок задержан на 600мс — за словом фигурки
+          if (!big) sayPraise(1900);
+          roundTimer = setTimeout(nextRound, big ? 4700 : 3200);
         }, 600);
       }
     };
@@ -421,14 +446,19 @@
       void el.offsetWidth;
       el.classList.add('pulse');
     }
-    Sfx.playStar();
-    if (sessionStars >= 5) {
+    const big = sessionStars >= 5;
+    if (big) {
       sessionStars = 0;
-      bigCelebration();
-      awardSticker();
+      setTimeout(bigCelebration, 500); // фанфара — своей очередью, не вместе с мелодией
+      setTimeout(awardSticker, 2900);  // и голос наклейки — после голоса животного
+    } else {
+      setTimeout(() => Sfx.playStar(), 500); // искра — вместе с мелодией победы
     }
+    return big; // true = большой праздник: звуками ведёт roundWon/игровые блоки
   }
 
+  /* Праздник звучит по очереди: фанфара (t+500) → голос животного (t+1200)
+     → наклейка (t+2900). Здесь — только парад и конфетти. */
   function bigCelebration() {
     Sfx.playFanfare();
     Sfx.vibrate([80, 60, 80, 60, 140]);
@@ -442,15 +472,15 @@
     for (let i = 0; i < 5; i++) {
       setTimeout(() => burstConfettiAt(cx + (Math.random() - 0.5) * 200, cy, 16), i * 160);
     }
-    say('celebrate', T('celebrate_word'), { delay: 900 });
     setTimeout(() => {
       overlay.remove();
       const el = document.getElementById('stars');
       if (el) el.textContent = '⭐ 0';
-    }, 2600);
+    }, 2400);
   }
 
-  /* Каждые 5 звёзд — случайная наклейка в альбом (сначала недостающие) */
+  /* Каждые 5 звёзд — случайная наклейка в альбом (сначала недостающие).
+     Вызывается по таймеру из addStar (через 2900мс), когда голос уже замолчал. */
   function awardSticker() {
     const owned = stickerStore.all;
     const missing = Games.ANIMALS.filter((a) => !owned.includes(a.id));
@@ -458,17 +488,14 @@
     const animal = pickFrom[Math.floor(Math.random() * pickFrom.length)];
     stickerStore.all = [...owned, animal.id];
 
-    setTimeout(() => {
-      const card = h(`<div class="celebrate sticker-pop">
-          <div class="big">${animal.emoji}</div>
-          <div class="word">⭐ ${T('new_sticker')} ${cap(L(animal.name))}!</div>
-        </div>`);
-      fx.appendChild(card);
-      Sfx.playFanfare();
-      say('sticker', T('new_sticker'), { delay: 350 });
-      Sfx.speakL(cap(L(animal.name)), { delay: 1500 });
-      setTimeout(() => card.remove(), 2600);
-    }, 2900);
+    const card = h(`<div class="celebrate sticker-pop">
+        <div class="big">${animal.emoji}</div>
+        <div class="word">⭐ ${T('new_sticker')} ${cap(L(animal.name))}!</div>
+      </div>`);
+    fx.appendChild(card);
+    Sfx.playStar(); // одна искра — не вторая фанфара поверх фразы
+    say('sticker', T('new_sticker'), { delay: 350 });
+    setTimeout(() => card.remove(), 2400);
   }
 
   /* ================= АЛЬБОМ НАКЛЕЕК ================= */
@@ -1130,7 +1157,7 @@
 
       if (act === 'play') {
         Sfx.unlock();
-        Sfx.playTap();
+        Sfx.stop(); // без наложений: тишина и только звук животного
         Sfx.animal(id); // звук действует мгновенно, без сохранения
       } else if (act === 'reset') {
         applyTrack(id, '', row);

@@ -138,6 +138,9 @@ const Sfx = (() => {
   const phrasePending = { ru: {}, en: {} };
   const phraseTimers = new Set();
   const phraseSources = new Set();
+  /* Эпоха голоса: stop() её увеличивает — все отложенные озвучки прошлой
+     эпохи (например, подсказка, «догоняющая» загрузку файла) не играют. */
+  let voiceEpoch = 0;
 
   function setPhraseLang(l) {
     phraseLang = l === 'en' ? 'en' : 'ru';
@@ -173,7 +176,9 @@ const Sfx = (() => {
     const a = ac();
     if (!a) return false;
     const delay = opts.delay || 0;
+    const myEpoch = voiceEpoch;
     const run = () => {
+      if (myEpoch !== voiceEpoch) return; // тем временем нажали — молчим
       try {
         const src = a.createBufferSource();
         src.buffer = buf;
@@ -203,6 +208,7 @@ const Sfx = (() => {
   }
 
   function stopPhrases() {
+    voiceEpoch++;
     for (const t of phraseTimers) clearTimeout(t);
     phraseTimers.clear();
     for (const s of phraseSources) {
@@ -377,5 +383,6 @@ const Sfx = (() => {
     animal, vibrate, isMuted, toggleMute,
     getTracks, setTrack,
     phrase, loadPhrase, preloadPhrases, setPhraseLang,
+    voiceEpoch: () => voiceEpoch,
   };
 })();

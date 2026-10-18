@@ -55,7 +55,7 @@ const Games = (() => {
           html: `<span class="big-emoji">${a.emoji}</span><span class="opt-label">${cap(L(a.name))}</span>`,
           onPick() {
             Sfx.animal(a.id);
-            Sfx.speak(`${L(a.verb)} ${cap(L(a.name))}!`, { delay: 700 });
+            Sfx.speak(`${L(a.verb)} ${cap(L(a.name))}!`, { delay: 1200 });
           },
         })),
       };
@@ -98,7 +98,7 @@ const Games = (() => {
             onPick(btn) {
               const svg = btn.querySelector('svg');
               if (svg) svg.classList.add('grow');
-              Sfx.speak(`${cap(L(s.acc))}!`, { delay: 500 });
+              Sfx.speak(`${cap(L(s.acc))}!`, { delay: 1200 });
             },
           };
         }),
@@ -137,7 +137,7 @@ const Games = (() => {
           onPick(btn) {
             const b = btn.querySelector('.balloon');
             if (b) b.classList.add('pop-balloon');
-            Sfx.speak(`${cap(L(c.name))}!`, { delay: 500 });
+            Sfx.speak(`${cap(L(c.name))}!`, { delay: 1200 });
           },
         })),
       };
@@ -210,7 +210,7 @@ const Games = (() => {
           isCorrect: a.id === correct.id,
           html: subjectOf(a),
           onPick() {
-            Sfx.speak(`${cap(L(a.name))}!`, { delay: 450 });
+            Sfx.speak(`${cap(L(a.name))}!`, { delay: 1200 });
           },
         })),
       };
@@ -300,7 +300,7 @@ const Games = (() => {
           isCorrect: x.l === correct.l,
           html: `<span class="big-emoji letter">${x.l}</span><span class="opt-label">${x.e} ${cap(L(x.w))}</span>`,
           onPick() {
-            Sfx.speak(`${x.l}. ${L(x.w)}.`, { delay: 450 });
+            Sfx.speak(`${x.l}. ${L(x.w)}.`, { delay: 1200 });
           },
         })),
       };
@@ -340,7 +340,7 @@ const Games = (() => {
           isCorrect: a.id === correct.id,
           html: `<span class="big-emoji">${a.emoji}</span><span class="opt-label">${cap(L(a.name))}</span>`,
           onPick() {
-            Sfx.speak(`${cap(L(a.verb))} ${cap(L(a.name))}!`, { delay: 650 });
+            Sfx.speak(`${cap(L(a.verb))} ${cap(L(a.name))}!`, { delay: 1200 });
           },
         })),
       };
