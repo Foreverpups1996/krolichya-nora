@@ -160,5 +160,6 @@ const Games = (() => {
       counting: countingGame,
     },
     NUM_WORDS,
+    ANIMALS,
   };
 })();

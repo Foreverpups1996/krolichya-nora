@@ -137,6 +137,25 @@ const Sfx = (() => {
   const buffers = {};
   let loadingSounds = null;
 
+  /* Пользовательские дорожки животных (инженерное меню):
+     id -> data:URL загруженного файла или путь/URL. Хранятся в localStorage. */
+  let customTracks = (() => {
+    try { return JSON.parse(localStorage.getItem('baby_sound_tracks') || '{}'); }
+    catch (e) { return {}; }
+  })();
+
+  function getTracks() { return { ...customTracks }; }
+
+  function setTrack(id, src) {
+    try {
+      if (src) customTracks[id] = src; else delete customTracks[id];
+      localStorage.setItem('baby_sound_tracks', JSON.stringify(customTracks));
+    } catch (e) { /* переполнение localStorage — тихо игнорируем */ }
+    delete buffers[id];
+    loadingSounds = null; // перезагрузить буферы с новыми дорожками
+    return preloadAnimals();
+  }
+
   function preloadAnimals() {
     if (loadingSounds) return loadingSounds;
     const a = ac();
@@ -144,7 +163,8 @@ const Sfx = (() => {
     loadingSounds = Promise.all(
       Object.entries(ANIMAL_FILES).map(async ([id, cfg]) => {
         try {
-          const res = await fetch(cfg.url);
+          let res = await fetch(customTracks[id] || cfg.url);
+          if (!res.ok && customTracks[id]) res = await fetch(cfg.url); // фолбэк на стандартную запись
           if (!res.ok) return;
           const data = await res.arrayBuffer();
           buffers[id] = await new Promise((resolve, reject) => {
@@ -162,21 +182,23 @@ const Sfx = (() => {
     const a = ac();
     if (!a) return false;
     const cfg = ANIMAL_FILES[id];
+    const custom = !!customTracks[id]; // своя дорожка — играем как есть
     try {
       const src = a.createBufferSource();
       src.buffer = buf;
-      src.playbackRate.value = cfg.rate;
+      src.playbackRate.value = custom ? 1 : cfg.rate;
       const g = a.createGain();
       const t0 = a.currentTime + 0.02;
-      const dur = Math.min(cfg.maxDur || 2.5, buf.duration / cfg.rate);
+      const dur = Math.min(custom ? 6 : cfg.maxDur || 2.5, buf.duration / src.playbackRate.value);
+      const vol = custom ? 0.7 : cfg.vol;
       const fade = Math.min(0.2, dur / 3);
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.linearRampToValueAtTime(cfg.vol, t0 + 0.05);
-      g.gain.setValueAtTime(cfg.vol, t0 + dur - fade);
+      g.gain.linearRampToValueAtTime(vol, t0 + 0.05);
+      g.gain.setValueAtTime(vol, t0 + dur - fade);
       g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
       src.connect(g);
       g.connect(a.destination);
-      src.start(t0, cfg.offset || 0);
+      src.start(t0, custom ? 0 : cfg.offset || 0);
       src.stop(t0 + dur + 0.05);
       return true;
     } catch (e) {
@@ -249,5 +271,6 @@ const Sfx = (() => {
     unlock, speak, stop, preloadAnimals,
     playSuccess, playFanfare, playStar, playTap, playWrong, playPop,
     animal, vibrate, isMuted, toggleMute,
+    getTracks, setTrack,
   };
 })();
