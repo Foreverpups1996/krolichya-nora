@@ -5,17 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#7c3aed">
   <title>Кроличья нора — игра для малышей 2+</title>
+  <meta name="description" content="Развивающая игра для детей 2–3 лет: животные, формы, цветы, счёт, буквы и сортер. Озвучка голосом, без рекламы и покупок, работает офлайн.">
+  <link rel="canonical" href="https://foreverpups1996.github.io/krolichya-nora/">
+
+  <!-- Превью при шаринге (Telegram, VK, мессенджеры) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Кроличья нора">
+  <meta property="og:title" content="Кроличья нора — развивающая игра для детей 2–3 лет">
+  <meta property="og:description" content="Животные, формы, цветы, счёт, буквы и сортер. Озвучка живым голосом, без рекламы, работает офлайн.">
+  <meta property="og:url" content="https://foreverpups1996.github.io/krolichya-nora/">
+  <meta property="og:image" content="https://foreverpups1996.github.io/krolichya-nora/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="ru_RU">
+  <meta name="twitter:card" content="summary_large_image">
+
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐰</text></svg>">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div id="app"></div>
   <div id="fx-layer"></div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/sfx.js"></script>
   <script src="js/games.js"></script>
   <script src="js/main.js"></script>
+  <script>
+    /* PWA: офлайн-работа и установка на домашний экран */
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

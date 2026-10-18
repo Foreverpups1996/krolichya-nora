@@ -1,20 +1,59 @@
-/* main.js — экраны, игровой цикл, конфетти, звёзды, «Для родителей» */
+/* main.js — экраны, игровой цикл, звёзды, наклейки, статистика, «Для родителей» */
 (() => {
   const app = document.getElementById('app');
   const fx = document.getElementById('fx-layer');
+  const T = (k) => I18n.t(k);
+  const L = (o) => I18n.L(o);
 
+  /* ---------- Хранилище ---------- */
   const store = {
     get stars() { return parseInt(localStorage.getItem('baby_stars') || '0', 10) || 0; },
     set stars(v) { localStorage.setItem('baby_stars', String(v)); },
   };
+  const stickerStore = {
+    get all() {
+      try { return JSON.parse(localStorage.getItem('baby_stickers') || '[]'); }
+      catch (e) { return []; }
+    },
+    set all(v) { localStorage.setItem('baby_stickers', JSON.stringify(v)); },
+  };
+  const statsStore = {
+    get all() {
+      try {
+        const s = JSON.parse(localStorage.getItem('baby_stats') || '{}');
+        return { rounds: s.rounds || 0, days: s.days || {}, byGame: s.byGame || {} };
+      } catch (e) { return { rounds: 0, days: {}, byGame: {} }; }
+    },
+    set all(v) { localStorage.setItem('baby_stats', JSON.stringify(v)); },
+  };
+  const settings = {
+    get breakMin() {
+      const v = localStorage.getItem('baby_break_min');
+      return v === null ? 15 : (parseInt(v, 10) || 0);
+    },
+    set breakMin(v) { localStorage.setItem('baby_break_min', String(v)); },
+  };
 
-  const PRAISE = ['Молодец!', 'Умница!', 'Правильно!', 'Здорово!', 'Супер!', 'Ты герой!'];
+  const todayKey = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const PRAISE = [
+    { key: 'praise-molodets', text: { ru: 'Молодец!', en: 'Good job!' } },
+    { key: 'praise-umnica', text: { ru: 'Умница!', en: 'Well done!' } },
+    { key: 'praise-pravilno', text: { ru: 'Правильно!', en: "That's right!" } },
+    { key: 'praise-zdorovo', text: { ru: 'Здорово!', en: 'Great!' } },
+    { key: 'praise-super', text: { ru: 'Супер!', en: 'Super!' } },
+    { key: 'praise-geroy', text: { ru: 'Ты герой!', en: "You're a hero!" } },
+  ];
   const CONFETTI_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
 
   let sessionStars = 0;
   let currentGame = null;
+  let currentRound = null;
   let roundTimer = null;
-  let lastPrompt = '';
+  let streak = 0; // правильные ответы с первой попытки (сложность)
 
   const h = (html) => {
     const d = document.createElement('div');
@@ -24,32 +63,54 @@
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const praise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
 
+  /* Озвучка: записанная фраза (phrases/<lang>/<key>.mp3) либо TTS-фолбэк */
+  function say(key, text, opts = {}) {
+    if (Sfx.isMuted()) return;
+    if (Sfx.phrase(key, opts)) return;
+    if (!key) { // динамическая фраза (например, «Найди букву А!») — только TTS
+      if (text) Sfx.speakL(text, opts);
+      return;
+    }
+    Sfx.loadPhrase(I18n.get(), key).then((ok) => {
+      if (ok) Sfx.phrase(key, opts);
+      else if (text) Sfx.speakL(text, opts);
+    });
+  }
+  const sayPraise = (delay = 1800) => {
+    const p = praise();
+    say(p.key, L(p.text), { delay });
+  };
+
   /* ================= МЕНЮ ================= */
   function renderMenu() {
     clearTimeout(roundTimer);
     Sfx.stop();
     currentGame = null;
+    currentRound = null;
     sessionStars = 0;
+    streak = 0;
+    resetBreakTimer();
 
     app.innerHTML = `
       <div class="menu">
         <button class="eng-btn" id="eng-btn" aria-label="Инженерное меню">🛠</button>
-        <div class="menu-title">Кроличья нора</div>
-        <div class="menu-sub">Игра для малышей 2+</div>
+        <div class="menu-title">${T('app_title')}</div>
+        <div class="menu-sub">${T('app_sub')}</div>
         <div class="menu-grid">
           ${Object.values(Games.all).map((g) => `
             <button class="game-card" data-game="${g.id}" style="background:${g.bg}">
               <span class="icon">${g.icon}</span>
-              <span class="label">${g.title}</span>
+              <span class="label">${T(g.titleKey)}</span>
             </button>`).join('')}
         </div>
-        <div class="suggest-section">
-          <button class="suggest-btn" id="suggest-btn">💡 Предложения</button>
+        <div class="suggest-section menu-actions">
+          <button class="suggest-btn" id="album-btn">${T('btn_album')}</button>
+          <button class="suggest-btn" id="suggest-btn">${T('btn_suggest')}</button>
         </div>
         <div class="menu-footer">
-          <div class="total-stars">⭐ Всего звёзд: ${store.stars}</div>
+          <div class="total-stars">${I18n.tf('stars_total', { d: store.stars })}</div>
           <button class="parents-btn" id="parents-btn">
-            <span class="fill"></span>Для родителей
+            <span class="fill"></span>${T('btn_parents')}
           </button>
         </div>
       </div>`;
@@ -66,6 +127,10 @@
       Sfx.playTap();
       openEngineGate();
     });
+    document.getElementById('album-btn').addEventListener('pointerdown', () => {
+      Sfx.playTap();
+      openAlbumModal();
+    });
     document.getElementById('suggest-btn').addEventListener('pointerdown', () => {
       Sfx.playTap();
       openSuggestModal();
@@ -76,20 +141,24 @@
   /* ================= ЭКРАН ИГРЫ ================= */
   function renderGame(game) {
     Sfx.stop();
-    if (game.id === 'animals') Sfx.preloadAnimals();
+    if (game.id === 'animals' || game.id === 'sings' || game.id === 'pairs') Sfx.preloadAnimals();
     currentGame = game;
+    currentRound = null;
     sessionStars = 0;
+    streak = 0;
+    resetBreakTimer();
 
     app.innerHTML = `
       <div class="game-screen" style="background:${game.bg}">
         <div class="topbar">
-          <button class="btn-home" id="btn-home" aria-label="В меню">🏠</button>
+          <button class="btn-home" id="btn-home" aria-label="${T('btn_home')}">🏠</button>
           <div class="prompt" id="prompt"></div>
           <div class="stars" id="stars">⭐ 0</div>
         </div>
+        <div class="subject" id="subject" hidden></div>
         <div class="play-area" id="play-area"></div>
         <div class="bottom-row">
-          <button class="repeat-btn" id="btn-repeat" aria-label="Повторить подсказку">🔊</button>
+          <button class="repeat-btn" id="btn-repeat" aria-label="${T('btn_repeat')}">🔊</button>
         </div>
       </div>`;
 
@@ -99,51 +168,80 @@
     });
     document.getElementById('btn-repeat').addEventListener('pointerdown', () => {
       Sfx.playTap();
-      Sfx.speak(lastPrompt, { delay: 250 });
+      if (currentRound && currentRound.playSound) {
+        Sfx.animal(currentRound.playSound.id); // «повторить» в игре «Кто поёт?» — снова звук
+      } else if (currentRound) {
+        say(currentRound.prompt.key, currentRound.prompt.text, { delay: 250 });
+      }
     });
     nextRound();
   }
 
   /* ================= ИГРОВОЙ ЦИКЛ ================= */
+  function optionsCount() { return streak >= 5 ? 3 : 2; } // сложность растёт вместе с малышом
+
   function nextRound() {
     if (!currentGame) return;
-    const round = currentGame.createRound();
-    lastPrompt = round.prompt;
-    document.getElementById('prompt').textContent = round.prompt;
+    resetBreakTimer();
+    const round = currentGame.createRound(optionsCount());
+    currentRound = round;
+    document.getElementById('prompt').textContent = round.prompt.text;
+
+    const subject = document.getElementById('subject');
+    if (round.subject) {
+      subject.innerHTML = round.subject;
+      subject.hidden = false;
+    } else {
+      subject.hidden = true;
+      subject.innerHTML = '';
+    }
 
     const area = document.getElementById('play-area');
     area.innerHTML = '';
-    area.className = 'play-area ' + (round.mode === 'tapall' ? 'items' : 'options');
+    area.className = 'play-area ' + (round.mode === 'tapall' ? 'items' : round.mode === 'sorter' ? 'sorter' : 'options');
 
     if (round.mode === 'tapall') setupTapAll(round, area);
+    else if (round.mode === 'sorter') setupSorter(round, area);
     else setupChoose(round, area);
 
-    Sfx.speak(round.prompt, { delay: 700 });
+    say(round.prompt.key, round.prompt.text, { delay: 700 });
+    if (round.playSound) setTimeout(() => { if (currentRound === round) Sfx.animal(round.playSound.id); }, 550);
+  }
+
+  function roundWon(area, btn) {
+    Sfx.playSuccess();
+    Sfx.vibrate(60);
+    if (btn) btn.classList.add('win');
+    burstConfetti(btn || area, 26);
+    addStar();
+    sayPraise(1900);
+    roundTimer = setTimeout(nextRound, 3000);
   }
 
   function setupChoose(round, area) {
     let answered = false;
+    let wrongTaps = 0;
+    let correctBtn = null;
     round.options.forEach((opt) => {
       const btn = h(`<button class="opt">${opt.html}</button>`);
+      if (opt.isCorrect) correctBtn = btn;
       btn.addEventListener('pointerdown', () => {
         if (answered) return;
         if (opt.isCorrect) {
           answered = true;
-          Sfx.playSuccess();
-          Sfx.vibrate(60);
-          btn.classList.add('win');
-          burstConfetti(btn, 26);
+          streak++;
           if (opt.onPick) opt.onPick(btn);
-          addStar();
-          Sfx.speak(praise(), { delay: 1900 });
-          roundTimer = setTimeout(nextRound, 3000);
+          roundWon(area, btn);
         } else {
+          wrongTaps++;
+          streak = 0;
           Sfx.playWrong();
           Sfx.vibrate(25);
           btn.classList.remove('shake');
           void btn.offsetWidth; // перезапуск анимации
           btn.classList.add('shake');
-          Sfx.speak(lastPrompt, { delay: 550 });
+          if (wrongTaps >= 2 && correctBtn) correctBtn.classList.add('hint'); // мягкая подсказка
+          say(round.prompt.key, round.prompt.text, { delay: 550 });
         }
       });
       area.appendChild(btn);
@@ -161,7 +259,7 @@
         tapped++;
         Sfx.playPop();
         Sfx.vibrate(20);
-        Sfx.speak(Games.NUM_WORDS[tapped] || '');
+        Sfx.speakL(Games.numWord(tapped)); // «Раз, два, три…»
         if (tapped === round.items.length) {
           answered = true;
           roundTimer = setTimeout(() => {
@@ -169,8 +267,10 @@
             Sfx.vibrate(60);
             burstConfetti(area, 30);
             addStar();
-            Sfx.speak(praise(), { delay: 1900 });
-            roundTimer = setTimeout(nextRound, 3000);
+            // итог: «Всего три!» — малыш связывает пересчёт с результатом
+            say(round.countWordKey, round.countWordText, { delay: 900 });
+            sayPraise(2400);
+            roundTimer = setTimeout(nextRound, 3600);
           }, 650);
         }
       });
@@ -178,10 +278,142 @@
     });
   }
 
-  /* ================= ЗВЁЗДЫ ================= */
+  /* ---------- 🧩 Сортер: фигурки → окошки (тап или перетаскивание) ---------- */
+  function setupSorter(round, area) {
+    let done = 0;
+    let answered = false;
+    let selected = null; // выбранная фигурка (режим «тап-тап»)
+    let drag = null;
+
+    const board = h('<div class="board"></div>');
+    const deck = h('<div class="deck"></div>');
+    area.appendChild(board);
+    area.appendChild(deck);
+
+    const holes = [];
+    const pieces = [];
+    round.shapes.forEach((s) => {
+      const hole = h(`<button class="hole" data-id="${s.id}">${Games.shapeSvg(s, 'rgba(0,0,0,0.16)')}</button>`);
+      board.appendChild(hole);
+      holes.push(hole);
+      const piece = h(`<button class="piece" data-id="${s.id}">${Games.shapeSvg(s, s.color)}</button>`);
+      deck.appendChild(piece);
+      pieces.push(piece);
+    });
+
+    const wrongHole = (hole) => {
+      Sfx.playWrong();
+      Sfx.vibrate(20);
+      hole.classList.remove('shake');
+      void hole.offsetWidth;
+      hole.classList.add('shake');
+      say(round.prompt.key, round.prompt.text, { delay: 550 });
+    };
+
+    const place = (piece, hole) => {
+      if (answered || hole.classList.contains('filled')) return;
+      const svg = piece.querySelector('svg').cloneNode(true);
+      hole.innerHTML = '';
+      hole.classList.add('filled');
+      hole.appendChild(svg);
+      svg.classList.add('pop-in');
+      piece.classList.add('placed');
+      if (selected === piece) { piece.classList.remove('selected'); selected = null; }
+      Sfx.playPop();
+      Sfx.vibrate(25);
+      const shape = round.shapes.find((x) => x.id === piece.dataset.id);
+      if (shape) Sfx.speakL(cap(L(shape.acc)), { delay: 350 });
+      done++;
+      if (done === round.shapes.length) {
+        answered = true;
+        roundTimer = setTimeout(() => {
+          Sfx.playSuccess();
+          Sfx.vibrate(60);
+          burstConfetti(board, 30);
+          addStar();
+          sayPraise(1900);
+          roundTimer = setTimeout(nextRound, 3200);
+        }, 600);
+      }
+    };
+
+    pieces.forEach((piece) => {
+      piece.addEventListener('pointerdown', (e) => {
+        if (answered || piece.classList.contains('placed')) return;
+        Sfx.unlock();
+        drag = { piece, id: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false };
+        try { piece.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+      piece.addEventListener('pointermove', (e) => {
+        if (!drag || drag.piece !== piece) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(dx, dy) > 8) {
+          drag.moved = true;
+          piece.classList.add('dragging');
+          piece.style.pointerEvents = 'none'; // чтобы elementFromPoint «видел» окошки
+          if (selected === piece) { piece.classList.remove('selected'); selected = null; }
+        }
+        if (drag.moved) piece.style.transform = `translate(${dx}px, ${dy}px) scale(1.08)`;
+      });
+      const endDrag = (e) => {
+        if (!drag || drag.piece !== piece) return;
+        const moved = drag.moved;
+        drag = null;
+        piece.style.pointerEvents = '';
+        if (moved) {
+          piece.classList.remove('dragging');
+          piece.style.transform = '';
+          const under = document.elementFromPoint(e.clientX, e.clientY);
+          const hole = under && under.closest('.board .hole');
+          if (hole) {
+            if (hole.dataset.id === piece.dataset.id) place(piece, hole);
+            else wrongHole(hole);
+          }
+        } else if (selected === piece) {
+          piece.classList.remove('selected');
+          selected = null;
+        } else {
+          if (selected) selected.classList.remove('selected');
+          selected = piece;
+          piece.classList.add('selected');
+          Sfx.playTap();
+        }
+      };
+      piece.addEventListener('pointerup', endDrag);
+      piece.addEventListener('pointercancel', () => {
+        if (drag && drag.piece === piece) {
+          drag = null;
+          piece.classList.remove('dragging');
+          piece.style.transform = '';
+          piece.style.pointerEvents = '';
+        }
+      });
+    });
+
+    holes.forEach((hole) => {
+      hole.addEventListener('pointerdown', (e) => {
+        if (answered || !selected) return;
+        e.stopPropagation();
+        const match = pieces.find((p) => p.dataset.id === hole.dataset.id && !p.classList.contains('placed'));
+        if (match === selected) place(selected, hole);
+        else wrongHole(hole);
+      });
+    });
+  }
+
+  /* ================= ЗВЁЗДЫ, НАКЛЕЙКИ, СТАТИСТИКА ================= */
   function addStar() {
     sessionStars++;
     store.stars = store.stars + 1;
+
+    const stats = statsStore.all;
+    stats.rounds++;
+    if (currentGame) stats.byGame[currentGame.id] = (stats.byGame[currentGame.id] || 0) + 1;
+    const day = todayKey();
+    stats.days[day] = (stats.days[day] || 0) + 1;
+    statsStore.all = stats;
+
     const el = document.getElementById('stars');
     if (el) {
       el.textContent = `⭐ ${sessionStars}`;
@@ -193,6 +425,7 @@
     if (sessionStars >= 5) {
       sessionStars = 0;
       bigCelebration();
+      awardSticker();
     }
   }
 
@@ -201,7 +434,7 @@
     Sfx.vibrate([80, 60, 80, 60, 140]);
     const overlay = h(`<div class="celebrate">
         <div class="big">🌈</div>
-        <div class="word">Ура! Пять звёзд!</div>
+        <div class="word">${T('celebrate_word')}</div>
       </div>`);
     fx.appendChild(overlay);
     const cx = window.innerWidth / 2;
@@ -209,12 +442,116 @@
     for (let i = 0; i < 5; i++) {
       setTimeout(() => burstConfettiAt(cx + (Math.random() - 0.5) * 200, cy, 16), i * 160);
     }
+    say('celebrate', T('celebrate_word'), { delay: 900 });
     setTimeout(() => {
       overlay.remove();
       const el = document.getElementById('stars');
       if (el) el.textContent = '⭐ 0';
     }, 2600);
   }
+
+  /* Каждые 5 звёзд — случайная наклейка в альбом (сначала недостающие) */
+  function awardSticker() {
+    const owned = stickerStore.all;
+    const missing = Games.ANIMALS.filter((a) => !owned.includes(a.id));
+    const pickFrom = missing.length ? missing : Games.ANIMALS;
+    const animal = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+    stickerStore.all = [...owned, animal.id];
+
+    setTimeout(() => {
+      const card = h(`<div class="celebrate sticker-pop">
+          <div class="big">${animal.emoji}</div>
+          <div class="word">⭐ ${T('new_sticker')} ${cap(L(animal.name))}!</div>
+        </div>`);
+      fx.appendChild(card);
+      Sfx.playFanfare();
+      say('sticker', T('new_sticker'), { delay: 350 });
+      Sfx.speakL(cap(L(animal.name)), { delay: 1500 });
+      setTimeout(() => card.remove(), 2600);
+    }, 2900);
+  }
+
+  /* ================= АЛЬБОМ НАКЛЕЕК ================= */
+  function openAlbumModal() {
+    const owned = stickerStore.all;
+    const cells = Games.ANIMALS.map((a) => {
+      const has = owned.includes(a.id);
+      return `
+        <div class="album-item${has ? ' has' : ''}">
+          <span class="album-emoji">${has ? a.emoji : '❔'}</span>
+          <span class="album-name">${has ? cap(L(a.name)) : '—'}</span>
+        </div>`;
+    }).join('');
+    const m = h(`
+      <div class="modal">
+        <div class="modal-card">
+          <h2>${T('album_title')}</h2>
+          <p class="stat">${I18n.tf('album_have', { d: new Set(owned).size, n: Games.ANIMALS.length })}</p>
+          <div class="album-grid">${cells}</div>
+          ${owned.length ? '' : `<p class="album-hint">${T('album_empty')}</p>`}
+          <button class="modal-btn primary" id="album-close">${T('p_close')}</button>
+        </div>
+      </div>`);
+    document.body.appendChild(m);
+    m.addEventListener('pointerdown', (e) => { if (e.target === m) m.remove(); });
+    m.querySelector('#album-close').addEventListener('pointerdown', () => { Sfx.playTap(); m.remove(); });
+  }
+
+  /* ================= ОТДЫХ (родительский таймер) ================= */
+  let breakTimer = null;
+
+  function resetBreakTimer() {
+    clearTimeout(breakTimer);
+    breakTimer = null;
+    const min = settings.breakMin;
+    if (!min || !currentGameStarted()) return;
+    breakTimer = setTimeout(showRestOverlay, min * 60000);
+  }
+  // таймер отдыха активен и в меню, и в игре — достаточно знать, что приложение живо
+  function currentGameStarted() { return true; }
+
+  function showRestOverlay() {
+    clearTimeout(breakTimer);
+    breakTimer = null;
+    Sfx.stop();
+    const overlay = h(`
+      <div class="celebrate rest-overlay">
+        <div class="big">🐰</div>
+        <div class="word">${T('rest_title')}</div>
+        <div class="rest-text">${T('rest_text')}</div>
+        <div class="rest-btns">
+          <button class="modal-btn primary rest-btn" id="rest-more">${T('rest_more')}</button>
+          <button class="modal-btn rest-btn" id="rest-home">${T('rest_home')}</button>
+        </div>
+      </div>`);
+    fx.appendChild(overlay);
+    say('rest', T('rest_title'), { delay: 700 });
+    overlay.querySelector('#rest-more').addEventListener('pointerdown', () => {
+      Sfx.playTap();
+      overlay.remove();
+      resetBreakTimer();
+      if (currentRound) say(currentRound.prompt.key, currentRound.prompt.text, { delay: 500 });
+    });
+    overlay.querySelector('#rest-home').addEventListener('pointerdown', () => {
+      Sfx.playTap();
+      overlay.remove();
+      renderMenu();
+    });
+  }
+
+  /* ================= WAKE LOCK (экран не гаснет во время игры) ================= */
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (e) { /* не поддерживается — не страшно */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') requestWakeLock();
+  });
 
   /* ================= КОНФЕТТИ ================= */
   function burstConfetti(el, count = 22) {
@@ -272,34 +609,148 @@
     btn.addEventListener('pointercancel', stopHold);
   }
 
+  function statsHtml() {
+    const s = statsStore.all;
+    const days = Object.keys(s.days).length;
+    const perGame = Object.entries(s.byGame)
+      .filter(([id]) => Games.all[id])
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, n]) => `<div class="stat-row"><span>${Games.all[id].icon} ${T(Games.all[id].titleKey)}</span><b>${n}</b></div>`)
+      .join('');
+    return `
+      <p class="stat">${I18n.tf('p_rounds', { d: s.rounds })}</p>
+      <p class="stat">${I18n.tf('p_days', { d: days })}</p>
+      <div class="stats-list">${perGame}</div>`;
+  }
+
   function openParentsModal() {
     Sfx.playTap();
+    const breakMin = settings.breakMin;
+    const lang = I18n.get();
     const m = h(`
       <div class="modal">
         <div class="modal-card">
-          <h2>Для родителей</h2>
-          <p class="stat">⭐ Всего собрано звёзд: <b>${store.stars}</b></p>
-          <button class="modal-btn" data-act="mute">${Sfx.isMuted() ? '🔔 Включить звук' : '🔕 Выключить звук'}</button>
-          <button class="modal-btn danger" data-act="reset">🗑 Сбросить прогресс</button>
+          <h2>${T('p_title')}</h2>
+          <p class="stat">⭐ ${store.stars}</p>
+          <p class="parents-sub">${T('p_stats')}</p>
+          ${statsHtml()}
+          <p class="parents-sub">${T('p_break')} ⏳</p>
+          <div class="btn-row">
+            ${[0, 10, 15, 25].map((v) => `
+              <button class="chip-btn${breakMin === v ? ' active' : ''}" data-break="${v}">${v === 0 ? T('p_break_off') : v + '′'}</button>`).join('')}
+          </div>
+          <p class="parents-note">${T('p_break_note')}</p>
+          <p class="parents-sub">${T('p_lang')}</p>
+          <div class="btn-row">
+            <button class="chip-btn${lang === 'ru' ? ' active' : ''}" data-lang="ru">🇷🇺 Русский</button>
+            <button class="chip-btn${lang === 'en' ? ' active' : ''}" data-lang="en">🇬🇧 English</button>
+          </div>
+          <p class="parents-sub">${T('p_backup')}</p>
+          <button class="modal-btn" data-act="export">${T('p_export')}</button>
+          <button class="modal-btn" data-act="import">${T('p_import')}</button>
+          <p class="parents-note" id="backup-note"></p>
+          <button class="modal-btn" data-act="mute">${Sfx.isMuted() ? T('p_mute_on') : T('p_mute_off')}</button>
+          <button class="modal-btn danger" data-act="reset">${T('p_reset')}</button>
+          <a class="modal-btn parent-link" href="parents.html" target="_blank" rel="noopener">${T('p_landing')}</a>
           <p class="about">
-            «Кроличья нора» — развивающая игра для детей 2–3 лет: животные, формы, цветы и счёт.
-            Без рекламы, без покупок и без доступа в интернет.
-            Совет: играйте вместе с малышом, повторяйте вслух слова и хвалите за каждое правильное действие.
-            <br><br>Звуки животных: записи с Wikimedia Commons (авторы и лицензии — sounds/CREDITS.txt).
+            ${T('p_about')}
+            <br><br>${T('p_sounds_credit')}
           </p>
-          <button class="modal-btn primary" data-act="close">Закрыть</button>
+          <button class="modal-btn primary" data-act="close">${T('p_close')}</button>
+          <input type="file" id="import-file" accept="application/json,.json" hidden>
         </div>
       </div>`);
     document.body.appendChild(m);
-    m.addEventListener('pointerdown', (e) => { if (e.target === m) m.remove(); });
-    m.querySelector('[data-act="close"]').addEventListener('pointerdown', () => { Sfx.playTap(); m.remove(); });
-    m.querySelector('[data-act="mute"]').addEventListener('pointerdown', () => { Sfx.toggleMute(); m.remove(); openParentsModal(); });
+    const close = () => m.remove();
+    m.addEventListener('pointerdown', (e) => { if (e.target === m) close(); });
+    m.querySelector('[data-act="close"]').addEventListener('pointerdown', () => { Sfx.playTap(); close(); });
+    m.querySelector('[data-act="mute"]').addEventListener('pointerdown', () => { Sfx.toggleMute(); close(); openParentsModal(); });
+
+    // перерыв
+    m.querySelectorAll('[data-break]').forEach((btn) => {
+      btn.addEventListener('pointerdown', () => {
+        settings.breakMin = parseInt(btn.dataset.break, 10);
+        resetBreakTimer();
+        Sfx.playTap();
+        close();
+        openParentsModal();
+      });
+    });
+    // язык
+    m.querySelectorAll('[data-lang]').forEach((btn) => {
+      btn.addEventListener('pointerdown', () => {
+        I18n.set(btn.dataset.lang);
+        Sfx.playTap();
+        close(); // иначе старое окно останется под новым (на другом языке)
+        renderMenu();
+        openParentsModal();
+      });
+    });
+    // сброс
     m.querySelector('[data-act="reset"]').addEventListener('pointerdown', () => {
-      store.stars = 0;
+      if (confirm(T('p_reset_confirm'))) {
+        store.stars = 0;
+        stickerStore.all = [];
+        statsStore.all = { rounds: 0, days: {}, byGame: {} };
+      }
       Sfx.playTap();
-      m.remove();
-      openParentsModal();
+      close();
       renderMenu();
+    });
+    // экспорт / импорт
+    const note = m.querySelector('#backup-note');
+    m.querySelector('[data-act="export"]').addEventListener('pointerdown', () => {
+      const data = {
+        v: 1,
+        app: 'krolichya-nora',
+        exportedAt: new Date().toISOString(),
+        stars: store.stars,
+        stickers: stickerStore.all,
+        stats: statsStore.all,
+        lang: I18n.get(),
+        breakMin: settings.breakMin,
+      };
+      try {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `krolichya-nora-progress-${todayKey()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        note.textContent = T('p_export_done');
+        Sfx.playSuccess();
+      } catch (e) {
+        note.textContent = T('p_import_bad');
+      }
+    });
+    const importFile = m.querySelector('#import-file');
+    m.querySelector('[data-act="import"]').addEventListener('pointerdown', () => importFile.click());
+    importFile.addEventListener('change', () => {
+      const file = importFile.files && importFile.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const d = JSON.parse(reader.result);
+          if (typeof d !== 'object' || d === null || d.app !== 'krolichya-nora') throw new Error('bad');
+          store.stars = parseInt(d.stars, 10) || 0;
+          stickerStore.all = Array.isArray(d.stickers) ? d.stickers : [];
+          statsStore.all = d.stats && typeof d.stats === 'object'
+            ? { rounds: d.stats.rounds || 0, days: d.stats.days || {}, byGame: d.stats.byGame || {} }
+            : { rounds: 0, days: {}, byGame: {} };
+          if (d.lang) I18n.set(d.lang);
+          if (d.breakMin !== undefined) settings.breakMin = parseInt(d.breakMin, 10) || 0;
+          note.textContent = T('p_import_done');
+          Sfx.playSuccess();
+          renderMenu();
+        } catch (e) {
+          note.textContent = T('p_import_bad');
+          Sfx.playWrong();
+        }
+      };
+      reader.readAsText(file);
     });
   }
 
@@ -582,7 +1033,7 @@
       return `
         <div class="eng-row" data-id="${a.id}">
           <span class="eng-emoji">${a.emoji}</span>
-          <span class="eng-name">${cap(a.name)}</span>
+          <span class="eng-name">${cap(L(a.name))}</span>
           <button class="eng-play" data-act="play" aria-label="Проиграть">▶️</button>
           <input class="eng-src" data-act="src" type="text" autocomplete="off"
                  placeholder="путь/URL к аудио" value="${src.startsWith('data:') ? '' : escAttr(src)}">
@@ -820,6 +1271,7 @@
   document.addEventListener('pointerdown', () => {
     Sfx.unlock();
     Sfx.preloadAnimals();
+    requestWakeLock();
   }, { once: true });
 
   renderMenu();

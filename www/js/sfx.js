@@ -1,8 +1,9 @@
-/* Sfx — синтез звуков (Web Audio) + русская озвучка (SpeechSynthesis) + вибрация */
+/* Sfx — синтез звуков (Web Audio) + предзаписанные фразы + русская озвучка (SpeechSynthesis) + вибрация */
 const Sfx = (() => {
   let ctx = null;
   let muted = localStorage.getItem('baby_muted') === '1';
   let ruVoice = null;
+  let enVoice = null;
   const speakTimers = new Set();
 
   /* ---------- Аудиоконтекст ---------- */
@@ -27,6 +28,7 @@ const Sfx = (() => {
       loadVoices();
       try { speechSynthesis.resume(); } catch (e) {}
     }
+    preloadPhrases();
   }
 
   /* ---------- Голос ---------- */
@@ -34,6 +36,7 @@ const Sfx = (() => {
     if (!('speechSynthesis' in window)) return;
     const vs = speechSynthesis.getVoices() || [];
     ruVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('ru')) || null;
+    enVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('en')) || null;
   }
   if ('speechSynthesis' in window) {
     loadVoices();
@@ -45,12 +48,14 @@ const Sfx = (() => {
     const delay = opts.delay || 0;
     const rate = opts.rate || 0.9;
     const pitch = opts.pitch || 1.2;
+    const lang = opts.lang || 'ru-RU';
     const run = () => {
       try {
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'ru-RU';
-        if (ruVoice) u.voice = ruVoice;
+        u.lang = lang;
+        if (lang.startsWith('ru') && ruVoice) u.voice = ruVoice;
+        if (lang.startsWith('en') && enVoice) u.voice = enVoice;
         u.rate = rate;
         u.pitch = pitch;
         speechSynthesis.speak(u);
@@ -64,12 +69,18 @@ const Sfx = (() => {
     }
   }
 
+  /** Озвучка на текущем языке игры */
+  function speakL(text, opts = {}) {
+    speak(text, { lang: I18n.get() === 'en' ? 'en-US' : 'ru-RU', ...opts });
+  }
+
   function stop() {
     for (const t of speakTimers) clearTimeout(t);
     speakTimers.clear();
     if ('speechSynthesis' in window) {
       try { speechSynthesis.cancel(); } catch (e) {}
     }
+    stopPhrases();
   }
 
   /* ---------- Тон ---------- */
@@ -119,20 +130,109 @@ const Sfx = (() => {
     tone({ f: 950, f2: 220, dur: 0.09, type: 'sine', vol: 0.2 });
   }
 
+  /* ---------- Предзаписанные фразы (phrases/<lang>/<key>.mp3) ----------
+     Основной канал озвучки: живой женский/детский голос вместо TTS.
+     Если файл ещё не загружен — main.js сам делает фолбэк на TTS. */
+  let phraseLang = localStorage.getItem('baby_lang') === 'en' ? 'en' : 'ru';
+  const phraseBuffers = { ru: {}, en: {} };
+  const phrasePending = { ru: {}, en: {} };
+  const phraseTimers = new Set();
+  const phraseSources = new Set();
+
+  function setPhraseLang(l) {
+    phraseLang = l === 'en' ? 'en' : 'ru';
+  }
+
+  function loadPhrase(lang, key) {
+    if (phraseBuffers[lang][key]) return Promise.resolve(true);
+    if (phrasePending[lang][key]) return phrasePending[lang][key];
+    const p = (async () => {
+      try {
+        const a = ac();
+        if (!a) return false;
+        const res = await fetch(`phrases/${lang}/${key}.mp3`);
+        if (!res.ok) return false;
+        const data = await res.arrayBuffer();
+        phraseBuffers[lang][key] = await new Promise((resolve, reject) => a.decodeAudioData(data, resolve, reject));
+        return true;
+      } catch (e) {
+        return false;
+      } finally {
+        delete phrasePending[lang][key];
+      }
+    })();
+    phrasePending[lang][key] = p;
+    return p;
+  }
+
+  /** Проиграть записанную фразу текущего языка. true — если фраза есть и сыграна. */
+  function phrase(key, opts = {}) {
+    if (muted || !key) return false;
+    const buf = phraseBuffers[phraseLang] && phraseBuffers[phraseLang][key];
+    if (!buf) return false;
+    const a = ac();
+    if (!a) return false;
+    const delay = opts.delay || 0;
+    const run = () => {
+      try {
+        const src = a.createBufferSource();
+        src.buffer = buf;
+        const g = a.createGain();
+        const t0 = a.currentTime + 0.02;
+        const dur = buf.duration;
+        const fade = Math.min(0.12, dur / 4);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(0.95, t0 + 0.04);
+        g.gain.setValueAtTime(0.95, t0 + dur - fade);
+        g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+        src.connect(g);
+        g.connect(a.destination);
+        src.onended = () => phraseSources.delete(src);
+        phraseSources.add(src);
+        src.start(t0);
+        src.stop(t0 + dur + 0.05);
+      } catch (e) {}
+    };
+    if (delay) {
+      const t = setTimeout(() => { phraseTimers.delete(t); run(); }, delay);
+      phraseTimers.add(t);
+    } else {
+      run();
+    }
+    return true;
+  }
+
+  function stopPhrases() {
+    for (const t of phraseTimers) clearTimeout(t);
+    phraseTimers.clear();
+    for (const s of phraseSources) {
+      try { s.stop(); } catch (e) {}
+    }
+    phraseSources.clear();
+  }
+
+  /** Предзагрузить все фразы текущего языка (после первого касания) */
+  function preloadPhrases() {
+    if (typeof Games !== 'undefined' && Games.phraseKeys) {
+      Games.phraseKeys().forEach((key) => loadPhrase(phraseLang, key));
+    }
+  }
+
   /* ---------- Реальные звуки животных (мягкие) ----------
      Записи Wikimedia Commons (см. sounds/CREDITS.txt).
-     Чуть ускоряем (выше тише — звучит смешно и не страшно),
+     MP3-копии — для Safari/iOS, Ogg — фолбэк.
+     Чуть ускоряем (выше тище — звучит смешно и не страшно),
      ограничиваем длительность и делаем плавные атаку/затухание. */
   const ANIMAL_FILES = {
-    dog:   { url: 'sounds/dog.ogg',   rate: 1.2,  vol: 0.40 },
-    cat:   { url: 'sounds/cat.ogg',   rate: 1.3,  vol: 0.50, offset: 3.2 },
-    cow:   { url: 'sounds/cow.ogg',   rate: 1.25, vol: 0.50 },
-    sheep: { url: 'sounds/sheep.ogg', rate: 1.25, vol: 0.50 },
-    pig:   { url: 'sounds/pig.ogg',   rate: 1.3,  vol: 0.50 },
-    duck:  { url: 'sounds/duck.ogg',  rate: 1.35, vol: 0.40, maxDur: 2.0 },
-    horse: { url: 'sounds/horse.ogg', rate: 1.2,  vol: 0.45 },
-    frog:  { url: 'sounds/frog.ogg',  rate: 1.3,  vol: 0.40 },
-    bear:  { url: 'sounds/bear.ogg',  rate: 1.45, vol: 0.30 },
+    dog:   { urls: ['sounds/dog.mp3', 'sounds/dog.ogg'],     rate: 1.2,  vol: 0.40 },
+    cat:   { urls: ['sounds/cat.mp3', 'sounds/cat.ogg'],     rate: 1.3,  vol: 0.50, offset: 3.2 },
+    cow:   { urls: ['sounds/cow.mp3', 'sounds/cow.ogg'],     rate: 1.25, vol: 0.50 },
+    sheep: { urls: ['sounds/sheep.mp3', 'sounds/sheep.ogg'], rate: 1.25, vol: 0.50 },
+    pig:   { urls: ['sounds/pig.mp3', 'sounds/pig.ogg'],     rate: 1.3,  vol: 0.50 },
+    duck:  { urls: ['sounds/duck.mp3', 'sounds/duck.ogg'],   rate: 1.35, vol: 0.40, maxDur: 2.0 },
+    horse: { urls: ['sounds/horse.mp3', 'sounds/horse.ogg'], rate: 1.2,  vol: 0.45 },
+    frog:  { urls: ['sounds/frog.mp3', 'sounds/frog.ogg'],   rate: 1.3,  vol: 0.40 },
+    bear:  { urls: ['sounds/bear.mp3', 'sounds/bear.ogg'],   rate: 1.45, vol: 0.30 },
   };
   const buffers = {};
   let loadingSounds = null;
@@ -162,15 +262,19 @@ const Sfx = (() => {
     if (!a) return Promise.resolve();
     loadingSounds = Promise.all(
       Object.entries(ANIMAL_FILES).map(async ([id, cfg]) => {
-        try {
-          let res = await fetch(customTracks[id] || cfg.url);
-          if (!res.ok && customTracks[id]) res = await fetch(cfg.url); // фолбэк на стандартную запись
-          if (!res.ok) return;
-          const data = await res.arrayBuffer();
-          buffers[id] = await new Promise((resolve, reject) => {
-            a.decodeAudioData(data, resolve, reject);
-          });
-        } catch (e) { /* останется синтез-фолбэк */ }
+        const urls = customTracks[id] ? [customTracks[id], ...cfg.urls] : cfg.urls;
+        for (const url of urls) {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) continue;
+            const data = await res.arrayBuffer();
+            buffers[id] = await new Promise((resolve, reject) => {
+              a.decodeAudioData(data, resolve, reject);
+            });
+            return;
+          } catch (e) { /* пробуем следующий источник */ }
+        }
+        /* останется синтез-фолбэк */
       })
     );
     return loadingSounds;
@@ -268,9 +372,10 @@ const Sfx = (() => {
   }
 
   return {
-    unlock, speak, stop, preloadAnimals,
+    unlock, speak, speakL, stop, preloadAnimals,
     playSuccess, playFanfare, playStar, playTap, playWrong, playPop,
     animal, vibrate, isMuted, toggleMute,
     getTracks, setTrack,
+    phrase, loadPhrase, preloadPhrases, setPhraseLang,
   };
 })();

@@ -1,0 +1,16 @@
+{
+  "name": "Кроличья нора — игра для малышей 2+",
+  "short_name": "Кроличья нора",
+  "description": "Развивающая игра для детей 2–3 лет: животные, формы, цветы, счёт, буквы и сортер. Без рекламы, работает офлайн.",
+  "lang": "ru",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fef6e4",
+  "theme_color": "#7c3aed",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

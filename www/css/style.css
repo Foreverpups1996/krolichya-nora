@@ -609,6 +609,247 @@ button { font-family: inherit; }
   color: #16a34a;
 }
 
+/* ===== Тема-персонаж (субъект раунда: малыш/мама) ===== */
+.subject {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2px 0 4px;
+  min-height: 0;
+}
+.subject .big-emoji {
+  font-size: clamp(64px, 20vw, 120px);
+  line-height: 1;
+  filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.22));
+  animation: winPulse 0.6s ease-out;
+}
+.subject .big-emoji.small-baby {
+  font-size: clamp(44px, 13vw, 80px);
+}
+
+/* ===== Мягкая подсказка (пульс правильного ответа) ===== */
+.opt.hint {
+  outline: 6px solid rgba(250, 204, 21, 0.85);
+  animation: hintPulse 1s ease-in-out infinite;
+}
+
+/* ===== Буквы ===== */
+.big-emoji.letter {
+  font-size: clamp(60px, 19vw, 110px);
+  color: #7c3aed;
+  font-weight: 900;
+}
+
+/* ===== Сортер (тап или перетаскивание фигур в окошки) ===== */
+.play-area.sorter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.play-area.sorter .board {
+  display: flex;
+  justify-content: center;
+  gap: clamp(10px, 3vw, 22px);
+}
+.play-area.sorter .hole {
+  width: clamp(84px, 24vw, 140px);
+  height: clamp(84px, 24vw, 140px);
+  border: none;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 5px 12px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+.play-area.sorter .hole.filled {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.14);
+}
+.play-area.sorter .deck {
+  display: flex;
+  justify-content: center;
+  gap: clamp(10px, 3vw, 22px);
+}
+.play-area.sorter .piece {
+  border: none;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.16);
+  cursor: grab;
+  touch-action: none;
+  width: clamp(84px, 24vw, 140px);
+  height: clamp(84px, 24vw, 140px);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s;
+}
+.play-area.sorter .piece.selected {
+  outline: 6px solid rgba(250, 204, 21, 0.9);
+  animation: hintPulse 1s ease-in-out infinite;
+}
+.play-area.sorter .piece.dragging {
+  transition: none;
+  z-index: 10;
+  opacity: 0.92;
+  cursor: grabbing;
+}
+.play-area.sorter .piece.placed {
+  visibility: hidden;
+}
+.play-area.sorter .hole .shape-svg svg.pop-in {
+  animation: winPulse 0.5s ease-out;
+}
+.play-area.sorter .shape-svg {
+  width: 100%;
+  height: 100%;
+}
+.play-area.sorter .hole .shape-svg svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ===== Меню: альбом + предложения ===== */
+.menu-actions {
+  display: flex;
+  gap: 10px;
+}
+.menu-actions .suggest-btn {
+  flex: 1;
+}
+
+/* ===== Альбом наклеек ===== */
+.album-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.album-item {
+  background: #f9fafb;
+  border: 2px solid #f3f4f6;
+  border-radius: 18px;
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.album-item .album-emoji {
+  font-size: clamp(34px, 10vw, 46px);
+  line-height: 1;
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+.album-item.has {
+  background: #fef9c3;
+  border-color: #fde047;
+}
+.album-item.has .album-emoji {
+  filter: none;
+  opacity: 1;
+}
+.album-item .album-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: #6b7280;
+}
+.album-item.has .album-name { color: #92400e; }
+.album-hint {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #9ca3af;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+/* ===== Наклейка после праздника ===== */
+.sticker-pop .word { background: rgba(255, 251, 235, 0.92); }
+
+/* ===== Экран отдыха ===== */
+.rest-overlay {
+  pointer-events: auto;
+  background: rgba(255, 250, 240, 0.96);
+  gap: 10px;
+}
+.rest-overlay .rest-text {
+  text-align: center;
+  font-size: clamp(16px, 4.6vw, 21px);
+  font-weight: 800;
+  color: #78716c;
+  max-width: min(86vw, 420px);
+  line-height: 1.4;
+}
+.rest-overlay .rest-btns {
+  display: flex;
+  gap: 12px;
+  width: min(86vw, 360px);
+}
+.rest-overlay .rest-btn {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* ===== Родительская панель ===== */
+.parents-sub {
+  text-align: center;
+  font-weight: 900;
+  color: #7c3aed;
+  font-size: 15px;
+  margin: 14px 0 8px;
+}
+.parents-note {
+  text-align: center;
+  font-size: 12.5px;
+  color: #9ca3af;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.stats-list { margin-bottom: 4px; }
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 800;
+  color: #555;
+  padding: 3px 8px;
+}
+.btn-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.chip-btn {
+  flex: 1;
+  border: 2px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  color: #6b7280;
+  padding: 10px 6px;
+  cursor: pointer;
+}
+.chip-btn.active {
+  border-color: #7c3aed;
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.modal-btn.parent-link {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  line-height: normal;
+}
+
 /* ===== Анимации ===== */
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
@@ -625,6 +866,10 @@ button { font-family: inherit; }
   0% { transform: scale(1); }
   45% { transform: scale(1.18); }
   100% { transform: scale(1); }
+}
+@keyframes hintPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14); }
+  50% { transform: scale(1.05); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 0 24px rgba(250, 204, 21, 0.9); }
 }
 @keyframes balloonPop {
   0% { transform: scale(1); }
