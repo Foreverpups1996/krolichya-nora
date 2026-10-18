@@ -342,6 +342,74 @@
     }
   }
 
+  /* ================= VK (фолбэк без VPN) =================
+     api.vk.com доступен из России без VPN. Запросы идут через
+     JSONP (параметр callback), поэтому CORS не требуется. */
+  const loadVk = () => {
+    try { return JSON.parse(localStorage.getItem('baby_vk') || '{}'); } catch (e) { return {}; }
+  };
+  const saveVk = (cfg) => localStorage.setItem('baby_vk', JSON.stringify(cfg));
+
+  function vkSend(text) {
+    const cfg = loadVk();
+    if (!cfg.token || !cfg.userId) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    return new Promise((resolve) => {
+      const cb = 'vk_cb_' + Math.random().toString(36).slice(2);
+      const s = document.createElement('script');
+      let done = false;
+      const finish = (r) => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        delete window[cb];
+        s.remove();
+        resolve(r);
+      };
+      const t = setTimeout(() => finish({ ok: false, reason: 'timeout' }), 12000);
+      window[cb] = (data) => {
+        if (data && data.response) finish({ ok: true, data });
+        else {
+          const err = (data && data.error) || {};
+          finish({ ok: false, reason: 'api', description: err.error_msg || 'ошибка VK' });
+        }
+      };
+      s.onerror = () => finish({ ok: false, reason: 'network' });
+      const q = new URLSearchParams({
+        access_token: cfg.token.trim(),
+        user_id: cfg.userId.trim(),
+        message: text,
+        random_id: String(Math.floor(Math.random() * 1e9)),
+        v: '5.199',
+        callback: cb,
+      });
+      s.src = `https://api.vk.com/method/messages.send?${q}`;
+      document.head.appendChild(s);
+    });
+  }
+
+  /* Единая доставка: Telegram → при недоступности сети VK.
+     Возвращает: { ok: true, via } | { ok: false, text } | undefined (ничего не настроено) */
+  async function deliver(payload) {
+    const tg = loadTg(), vk = loadVk();
+    const hasTg = !!(tg.token && tg.chatId);
+    const hasVk = !!(vk.token && vk.userId);
+    if (hasTg) {
+      const r = await tgSend(payload);
+      if (r.ok) return { ok: true, via: 'Telegram' };
+      if (r.reason === 'api') return { ok: false, text: `Ошибка Telegram: ${r.description}` };
+      // сеть/VPN недоступны — пробуем VK
+    }
+    if (hasVk) {
+      const r = await vkSend(payload);
+      if (r.ok) return { ok: true, via: 'VK', fallback: hasTg };
+      if (r.reason === 'api') return { ok: false, text: `Ошибка VK: ${r.description}` };
+      return { ok: false, text: hasTg ? 'Telegram и VK недоступны' : 'VK недоступен (сеть)' };
+    }
+    if (hasTg) return { ok: false, text: 'Telegram недоступен (нет VPN?)' };
+    // ничего не настроено
+    return undefined;
+  }
+
   function openSuggestModal() {
     const m = h(`
       <div class="modal">
@@ -395,26 +463,21 @@
       input.value = '';
       renderHistory();
       flash('Сохранено ✓');
-      // если Telegram настроен — отправляем копию
-      if (loadTg().token && loadTg().chatId) {
-        const r = await tgSend(`💡 Предложение:\n${t}`);
-        if (r.ok) flash('Отправлено в Telegram ✓');
-        else if (r.reason === 'network') flash('Сохранено, но Telegram недоступен', true);
-        else flash(`Сохранено. Ошибка: ${r.description}`, true);
-      }
+      // если Telegram/VK настроены — отправляем копию (Telegram → фолбэк VK)
+      const d = await deliver(`💡 Предложение:\n${t}`);
+      if (d && d.ok) flash(`Отправлено в ${d.via} ✓`);
+      else if (d) flash(`Сохранено. ${d.text}`, true);
     });
 
     m.querySelector('#suggest-share').addEventListener('pointerdown', async () => {
       const t = text();
       if (!t) { flash('Пустое предложение', true); return; }
       const payload = `Предложение для «Кроличьей норы»:\n${t}`;
-      // Telegram — основной канал
-      if (loadTg().token && loadTg().chatId) {
-        const r = await tgSend(payload);
-        if (r.ok) { flash('Отправлено в Telegram ✓'); return; }
-        if (r.reason === 'api') { flash(`Ошибка: ${r.description}`, true); return; }
-        // сеть недоступна — падаем в штатный share/буфер
-      }
+      // Telegram/VK — основной канал (VK срабатывает автоматически, если Telegram заблокирован)
+      const d = await deliver(payload);
+      if (d && d.ok) { flash(`Отправлено в ${d.via} ✓`); return; }
+      if (d && d.text.startsWith('Ошибка')) { flash(d.text, true); return; }
+      // каналы не настроены или сеть лежит — штатный share/буфер
       try {
         if (navigator.share) {
           await navigator.share({ title: 'Предложение — Кроличья нора', text: payload });
@@ -525,6 +588,20 @@
             <button class="modal-btn" id="tg-detect">🔎 Определить chat_id</button>
             <button class="modal-btn" id="tg-test">📨 Отправить тест</button>
             <p class="eng-note" id="tg-status"></p>
+          </div>
+          <div class="eng-tg eng-vk">
+            <h2>💬 Доставка в VK (без VPN)</h2>
+            <p class="eng-hint">
+              VK работает без VPN — если Telegram заблокирован, доставка пойдёт автоматически сюда.
+              Создайте сообщество → Управление → Работа с API → ключ доступа с правами «Сообщения».
+              Напишите сообществу сообщение. Ваш ID — цифры из адреса профиля vk.com/id123456789.
+            </p>
+            <input class="eng-src" id="vk-token" type="text" autocomplete="off"
+                   spellcheck="false" placeholder="Ключ доступа сообщества">
+            <input class="eng-src" id="vk-user" type="text" autocomplete="off"
+                   inputmode="numeric" placeholder="Ваш VK ID (цифры)">
+            <button class="modal-btn" id="vk-test">📨 Отправить тест в VK</button>
+            <p class="eng-note" id="vk-status"></p>
           </div>
           <button class="modal-btn primary" id="eng-close">Закрыть</button>
         </div>
@@ -669,6 +746,35 @@
       else if (r.reason === 'not-configured') tgFlash('Заполните токен и chat_id', true);
       else if (r.reason === 'network') tgFlash('Сеть недоступна (нужен интернет/VPN)', true);
       else tgFlash(`Telegram ответил: ${r.description}`, true);
+    });
+
+    /* --- VK --- */
+    const vkToken = m.querySelector('#vk-token');
+    const vkUser = m.querySelector('#vk-user');
+    const vkStatus = m.querySelector('#vk-status');
+    const vkCfg = loadVk();
+    vkToken.value = vkCfg.token || '';
+    vkUser.value = vkCfg.userId || '';
+
+    const vkFlash = (msg, bad) => {
+      vkStatus.textContent = msg;
+      vkStatus.classList.toggle('bad', !!bad);
+      clearTimeout(vkStatus._t);
+      vkStatus._t = setTimeout(() => { vkStatus.textContent = ''; }, 6000);
+    };
+    const vkPersist = () => saveVk({ token: vkToken.value.trim(), userId: vkUser.value.trim() });
+    vkToken.addEventListener('change', vkPersist);
+    vkUser.addEventListener('change', vkPersist);
+
+    m.querySelector('#vk-test').addEventListener('pointerdown', async () => {
+      vkPersist();
+      vkFlash('Отправляю…');
+      const r = await vkSend('🧪 Тест из «Кроличьей норы» — доставка в ВК настроена ✓');
+      if (r.ok) vkFlash('Тест доставлен ✓');
+      else if (r.reason === 'not-configured') vkFlash('Заполните ключ и ID', true);
+      else if (r.reason === 'timeout') vkFlash('VK не ответил (сеть?)', true);
+      else if (r.reason === 'network') vkFlash('Сеть недоступна', true);
+      else vkFlash(`VK ответил: ${r.description}`, true);
     });
     m.querySelector('#eng-close').addEventListener('pointerdown', () => { Sfx.playTap(); m.remove(); });
     m.addEventListener('pointerdown', (e) => { if (e.target === m) m.remove(); });
