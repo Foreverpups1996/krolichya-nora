@@ -1,0 +1,187 @@
+/* Sfx — синтез звуков (Web Audio) + русская озвучка (SpeechSynthesis) + вибрация */
+const Sfx = (() => {
+  let ctx = null;
+  let muted = localStorage.getItem('baby_muted') === '1';
+  let ruVoice = null;
+  const speakTimers = new Set();
+
+  /* ---------- Аудиоконтекст ---------- */
+  function ac() {
+    try {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ctx = new AC();
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function unlock() {
+    const a = ac();
+    if (a && a.state === 'suspended') a.resume();
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      try { speechSynthesis.resume(); } catch (e) {}
+    }
+  }
+
+  /* ---------- Голос ---------- */
+  function loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    const vs = speechSynthesis.getVoices() || [];
+    ruVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('ru')) || null;
+  }
+  if ('speechSynthesis' in window) {
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+  }
+
+  function speak(text, opts = {}) {
+    if (muted || !('speechSynthesis' in window)) return;
+    const delay = opts.delay || 0;
+    const rate = opts.rate || 0.9;
+    const pitch = opts.pitch || 1.2;
+    const run = () => {
+      try {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'ru-RU';
+        if (ruVoice) u.voice = ruVoice;
+        u.rate = rate;
+        u.pitch = pitch;
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    };
+    if (delay) {
+      const t = setTimeout(() => { speakTimers.delete(t); run(); }, delay);
+      speakTimers.add(t);
+    } else {
+      run();
+    }
+  }
+
+  function stop() {
+    for (const t of speakTimers) clearTimeout(t);
+    speakTimers.clear();
+    if ('speechSynthesis' in window) {
+      try { speechSynthesis.cancel(); } catch (e) {}
+    }
+  }
+
+  /* ---------- Тон ---------- */
+  function tone({ f = 440, f2 = null, dur = 0.15, type = 'sine', vol = 0.22, at = 0 }) {
+    if (muted) return;
+    const a = ac();
+    if (!a) return;
+    const t0 = a.currentTime + at;
+    try {
+      const osc = a.createOscillator();
+      const g = a.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f, t0);
+      if (f2) osc.frequency.exponentialRampToValueAtTime(Math.max(f2, 20), t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(g);
+      g.connect(a.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.06);
+    } catch (e) {}
+  }
+
+  /* ---------- Мелодии ---------- */
+  function playSuccess() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+      tone({ f, dur: 0.18, type: 'triangle', vol: 0.22, at: i * 0.09 })
+    );
+  }
+  function playFanfare() {
+    [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) =>
+      tone({ f, dur: 0.22, type: 'triangle', vol: 0.25, at: i * 0.12 })
+    );
+  }
+  function playStar() {
+    tone({ f: 880, dur: 0.1, type: 'sine', vol: 0.2 });
+    tone({ f: 1318.5, dur: 0.25, type: 'sine', vol: 0.2, at: 0.09 });
+  }
+  function playTap() {
+    tone({ f: 600, f2: 900, dur: 0.07, type: 'sine', vol: 0.15 });
+  }
+  function playWrong() {
+    tone({ f: 330, f2: 250, dur: 0.28, type: 'sine', vol: 0.12 });
+  }
+  function playPop() {
+    tone({ f: 950, f2: 220, dur: 0.09, type: 'sine', vol: 0.2 });
+  }
+
+  /* ---------- Звуки животных (грубой синтез) ---------- */
+  const ANIMAL_SOUNDS = {
+    dog: () => {
+      tone({ f: 260, f2: 90, dur: 0.12, type: 'square', vol: 0.18 });
+      tone({ f: 290, f2: 100, dur: 0.12, type: 'square', vol: 0.18, at: 0.17 });
+    },
+    cat: () => {
+      tone({ f: 640, f2: 900, dur: 0.18, type: 'sine', vol: 0.2 });
+      tone({ f: 900, f2: 540, dur: 0.3, type: 'sine', vol: 0.2, at: 0.18 });
+    },
+    cow: () => {
+      tone({ f: 190, f2: 115, dur: 0.85, type: 'sawtooth', vol: 0.13 });
+      tone({ f: 125, f2: 95, dur: 0.45, type: 'sawtooth', vol: 0.11, at: 0.5 });
+    },
+    sheep: () => {
+      for (let i = 0; i < 7; i++) tone({ f: 330, f2: 300, dur: 0.06, type: 'sine', vol: 0.15, at: i * 0.085 });
+    },
+    pig: () => {
+      for (let i = 0; i < 3; i++) tone({ f: 145, f2: 110, dur: 0.08, type: 'sawtooth', vol: 0.16, at: i * 0.15 });
+    },
+    duck: () => {
+      for (let i = 0; i < 2; i++) tone({ f: 430, f2: 290, dur: 0.12, type: 'square', vol: 0.12, at: i * 0.19 });
+    },
+    chick: () => {
+      tone({ f: 1250, f2: 1650, dur: 0.06, type: 'sine', vol: 0.14 });
+      tone({ f: 1350, f2: 1750, dur: 0.06, type: 'sine', vol: 0.14, at: 0.11 });
+      tone({ f: 1300, f2: 1700, dur: 0.06, type: 'sine', vol: 0.14, at: 0.22 });
+    },
+    frog: () => {
+      tone({ f: 210, f2: 150, dur: 0.15, type: 'square', vol: 0.14 });
+      tone({ f: 210, f2: 150, dur: 0.15, type: 'square', vol: 0.14, at: 0.21 });
+    },
+    bear: () => {
+      tone({ f: 95, f2: 70, dur: 0.7, type: 'sawtooth', vol: 0.14 });
+    },
+  };
+
+  function animal(id) {
+    const s = ANIMAL_SOUNDS[id];
+    if (s) s();
+    else playTap();
+  }
+
+  /* ---------- Вибрация ---------- */
+  function vibrate(pattern) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    } catch (e) {}
+  }
+
+  /* ---------- Громкость ---------- */
+  function isMuted() { return muted; }
+  function toggleMute() {
+    muted = !muted;
+    localStorage.setItem('baby_muted', muted ? '1' : '0');
+    if (muted) stop();
+    else playTap();
+    return muted;
+  }
+
+  return {
+    unlock, speak, stop,
+    playSuccess, playFanfare, playStar, playTap, playWrong, playPop,
+    animal, vibrate, isMuted, toggleMute,
+  };
+})();

@@ -1,0 +1,7 @@
+# Зависимости и сборки
+node_modules/
+android/
+.gradle/
+local.properties
+*.log
+.DS_Store
