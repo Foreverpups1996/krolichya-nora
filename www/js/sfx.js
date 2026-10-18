@@ -119,7 +119,72 @@ const Sfx = (() => {
     tone({ f: 950, f2: 220, dur: 0.09, type: 'sine', vol: 0.2 });
   }
 
-  /* ---------- Звуки животных (грубой синтез) ---------- */
+  /* ---------- Реальные звуки животных (мягкие) ----------
+     Записи Wikimedia Commons (см. sounds/CREDITS.txt).
+     Чуть ускоряем (выше тише — звучит смешно и не страшно),
+     ограничиваем длительность и делаем плавные атаку/затухание. */
+  const ANIMAL_FILES = {
+    dog:   { url: 'sounds/dog.ogg',   rate: 1.2,  vol: 0.40 },
+    cat:   { url: 'sounds/cat.ogg',   rate: 1.3,  vol: 0.50, offset: 3.2 },
+    cow:   { url: 'sounds/cow.ogg',   rate: 1.25, vol: 0.50 },
+    sheep: { url: 'sounds/sheep.ogg', rate: 1.25, vol: 0.50 },
+    pig:   { url: 'sounds/pig.ogg',   rate: 1.3,  vol: 0.50 },
+    duck:  { url: 'sounds/duck.ogg',  rate: 1.35, vol: 0.40, maxDur: 2.0 },
+    horse: { url: 'sounds/horse.ogg', rate: 1.2,  vol: 0.45 },
+    frog:  { url: 'sounds/frog.ogg',  rate: 1.3,  vol: 0.40 },
+    bear:  { url: 'sounds/bear.ogg',  rate: 1.45, vol: 0.30 },
+  };
+  const buffers = {};
+  let loadingSounds = null;
+
+  function preloadAnimals() {
+    if (loadingSounds) return loadingSounds;
+    const a = ac();
+    if (!a) return Promise.resolve();
+    loadingSounds = Promise.all(
+      Object.entries(ANIMAL_FILES).map(async ([id, cfg]) => {
+        try {
+          const res = await fetch(cfg.url);
+          if (!res.ok) return;
+          const data = await res.arrayBuffer();
+          buffers[id] = await new Promise((resolve, reject) => {
+            a.decodeAudioData(data, resolve, reject);
+          });
+        } catch (e) { /* останется синтез-фолбэк */ }
+      })
+    );
+    return loadingSounds;
+  }
+
+  function playAnimalFile(id) {
+    const buf = buffers[id];
+    if (!buf || muted) return false;
+    const a = ac();
+    if (!a) return false;
+    const cfg = ANIMAL_FILES[id];
+    try {
+      const src = a.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = cfg.rate;
+      const g = a.createGain();
+      const t0 = a.currentTime + 0.02;
+      const dur = Math.min(cfg.maxDur || 2.5, buf.duration / cfg.rate);
+      const fade = Math.min(0.2, dur / 3);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(cfg.vol, t0 + 0.05);
+      g.gain.setValueAtTime(cfg.vol, t0 + dur - fade);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+      src.connect(g);
+      g.connect(a.destination);
+      src.start(t0, cfg.offset || 0);
+      src.stop(t0 + dur + 0.05);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* ---------- Звуки животных (синтез, фолбэк) ---------- */
   const ANIMAL_SOUNDS = {
     dog: () => {
       tone({ f: 260, f2: 90, dur: 0.12, type: 'square', vol: 0.18 });
@@ -157,6 +222,7 @@ const Sfx = (() => {
   };
 
   function animal(id) {
+    if (playAnimalFile(id)) return;
     const s = ANIMAL_SOUNDS[id];
     if (s) s();
     else playTap();
@@ -180,7 +246,7 @@ const Sfx = (() => {
   }
 
   return {
-    unlock, speak, stop,
+    unlock, speak, stop, preloadAnimals,
     playSuccess, playFanfare, playStar, playTap, playWrong, playPop,
     animal, vibrate, isMuted, toggleMute,
   };

@@ -62,6 +62,7 @@
   /* ================= ЭКРАН ИГРЫ ================= */
   function renderGame(game) {
     Sfx.stop();
+    if (game.id === 'animals') Sfx.preloadAnimals();
     currentGame = game;
     sessionStars = 0;
 
@@ -269,7 +270,8 @@
           <p class="about">
             «Кроличья нора» — развивающая игра для детей 2–3 лет: животные, формы, цветы и счёт.
             Без рекламы, без покупок и без доступа в интернет.
-            Совет: играйте вместе с малышом, повторяйте вслух слова и хвалите за каждое doğru действие.
+            Совет: играйте вместе с малышом, повторяйте вслух слова и хвалите за каждое правильное действие.
+            <br><br>Звуки животных: записи с Wikimedia Commons (авторы и лицензии — sounds/CREDITS.txt).
           </p>
           <button class="modal-btn primary" data-act="close">Закрыть</button>
         </div>
@@ -294,7 +296,10 @@
   document.addEventListener('touchmove', (e) => {
     if (e.touches.length > 1) e.preventDefault();
   }, { passive: false });
-  document.addEventListener('pointerdown', () => Sfx.unlock(), { once: true });
+  document.addEventListener('pointerdown', () => {
+    Sfx.unlock();
+    Sfx.preloadAnimals();
+  }, { once: true });
 
   renderMenu();
 })();

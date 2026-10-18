@@ -22,7 +22,7 @@ const Games = (() => {
     { id: 'sheep',   emoji: '🐑', name: 'овечка',   acc: 'овечку',   verb: 'Бе-бе!' },
     { id: 'pig',     emoji: '🐷', name: 'свинка',   acc: 'свинку',   verb: 'Хрю-хрю!' },
     { id: 'duck',    emoji: '🦆', name: 'утка',     acc: 'утку',     verb: 'Кря-кря!' },
-    { id: 'chick',   emoji: '🐥', name: 'цыплёнок', acc: 'цыплёнка', verb: 'Пи-пи!' },
+    { id: 'horse',   emoji: '🐴', name: 'лошадь',   acc: 'лошадь',   verb: 'Иго-го!' },
     { id: 'frog',    emoji: '🐸', name: 'лягушка',  acc: 'лягушку',  verb: 'Ква-ква!' },
     { id: 'bear',    emoji: '🐻', name: 'медведь',  acc: 'медведя',  verb: 'Гр-р-р!' },
   ];
